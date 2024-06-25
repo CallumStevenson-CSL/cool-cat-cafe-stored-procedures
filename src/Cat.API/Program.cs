@@ -1,8 +1,10 @@
+using Cat.Api.Constants;
 using Cat.Api.Entities;
 using Cat.Api.Interfaces;
 using Cat.Api.Persistence;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Azure.Cosmos.Scripts;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -78,5 +80,34 @@ app.MapGet("/kittens", async Task<Results<Ok<Kitten>, NotFound>> (IApplicationDb
     })
     .WithName("Kittens")
     .WithOpenApi();
+
+app.MapGet("/stored-procedure", async Task<Results<Ok<string>, NotFound>> (IApplicationDbContext dbContext) =>
+    {
+        // Delete stored procedure
+        await dbContext.Client.GetContainer("CoolCatCafe", CosmosDbConstants.AnimalsContainerName)
+            .Scripts.DeleteStoredProcedureAsync("testSP").ConfigureAwait(false);
+
+        // Create stored procedure
+        await dbContext.Client.GetContainer("CoolCatCafe", CosmosDbConstants.AnimalsContainerName)
+            .Scripts.CreateStoredProcedureAsync(new StoredProcedureProperties()
+            {
+                Id = "testSP",
+                Body = "function helloWorld() {" +
+                       "var context = getContext();" +
+                       "var response = context.getResponse();" +
+                       "response.setBody(\"Hello, World\");" +
+                       "}"
+            }).ConfigureAwait(false);
+
+
+        // Execute stored procedure
+        var response = await dbContext.Client.GetContainer("CoolCatCafe", CosmosDbConstants.AnimalsContainerName)
+            .Scripts.ExecuteStoredProcedureAsync<string>("testSP", new PartitionKey("Kitten"), null,
+                new StoredProcedureRequestOptions() { EnableScriptLogging = true }).ConfigureAwait(false);
+
+        return TypedResults.Ok(response.Resource);
+    })
+.WithName("SP")
+.WithOpenApi();
 
 app.Run();
